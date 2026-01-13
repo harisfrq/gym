@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0f14" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Gym Routine</title>
+
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='100%25' height='100%25' fill='%230b0f14'/%3E%3Ctext x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-size='92'%3E%F0%9F%8F%8B%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+
+  <style>
+    :root { color-scheme: dark; --bg:#0b0f14; --card:#121a24; --muted:#95a3b8; --text:#eaf0ff; --accent:#5dd6c7; --danger:#ff5a7a; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial; background:var(--bg); color:var(--text); }
+    header { padding:16px 16px 10px; position: sticky; top:0; background:linear-gradient(180deg, rgba(11,15,20,.98), rgba(11,15,20,.85)); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(255,255,255,.06);}
+    .row { display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap: wrap; }
+    h1 { font-size:18px; margin:0; letter-spacing:.2px;}
+    .sub { color:var(--muted); font-size:13px; margin-top:4px; }
+    main { padding: 14px 16px 120px; }
+    .card { background:var(--card); border:1px solid rgba(255,255,255,.06); border-radius:14px; padding:14px; margin:12px 0; }
+    .card h2 { font-size:14px; margin:0 0 10px; color: #cfe2ff; letter-spacing:.2px; }
+    .pill { font-size:12px; color:var(--muted); border:1px solid rgba(255,255,255,.1); padding:6px 10px; border-radius:999px; }
+    .btn { border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.06); color:var(--text); padding:8px 10px; border-radius:10px; font-weight:600; }
+    .btn:active { transform: translateY(1px); }
+    .ex { display:grid; grid-template-columns: 26px 1fr 120px; gap:10px; align-items:center; padding:10px 0; border-top:1px solid rgba(255,255,255,.06); }
+    .ex:first-of-type { border-top:0; padding-top:2px; }
+    .name { font-weight:700; font-size:14px; line-height:1.2; }
+    .meta { color:var(--muted); font-size:12px; margin-top:2px; }
+    input[type="checkbox"] { width:20px; height:20px; accent-color: var(--accent); }
+    .w { width:100%; padding:10px 10px; border-radius:10px; border:1px solid rgba(255,255,255,.12); background:rgba(0,0,0,.25); color:var(--text); font-size:14px; }
+    .done .name { text-decoration: line-through; color: var(--muted); }
+    .small { font-size:12px; color:var(--muted); }
+    footer { position: fixed; left:0; right:0; bottom:0; padding:10px 16px; background:linear-gradient(180deg, rgba(11,15,20,0), rgba(11,15,20,.95) 35%, rgba(11,15,20,.98)); }
+    .bar { display:flex; gap:10px; align-items:center; justify-content:space-between; }
+    .danger { border-color: rgba(255,90,122,.35); background: rgba(255,90,122,.1); }
+    .ok { border-color: rgba(93,214,199,.35); background: rgba(93,214,199,.12); color: #cffff7; }
+  </style>
+</head>
+
+<body>
+<header>
+  <div class="row">
+    <div>
+      <h1 id="title">Gym Routine</h1>
+      <div class="sub" id="subtitle"></div>
+
+      <div class="row" style="margin-top:10px;">
+        <div class="pill" id="bwPill">Bodyweight: —</div>
+        <button class="btn" id="bwBtn" type="button">Update BW</button>
+        <div class="pill" id="logPill">Sheets: off</div>
+      </div>
+    </div>
+
+    <div class="row" style="gap:8px;">
+      <button class="btn" id="unitBtn" type="button">Unit: kg</button>
+      <button class="btn" id="sheetsBtn" type="button">Sheets</button>
+      <button class="btn danger" id="resetTodayBtn" type="button">Reset today</button>
+    </div>
+  </div>
+</header>
+
+<main id="app"></main>
+
+<footer>
+  <div class="bar">
+    <div class="small" id="progress"></div>
+    <div class="small" id="tip"></div>
+  </div>
+</footer>
+
+<script>
+/** -----------------------------
+ *  Routine data (your plan)
+ *  ----------------------------- */
+const routine = {
+  warmup: [
+    { name: "Treadmill jog or cycle", sets: "5 min" },
+    { name: "Leg press (light)", sets: "2×15" },
+    { name: "Shoulder machine (light)", sets: "2×15" },
+    { name: "Sled", sets: "optional hard pushes" }
+  ],
+  days: {
+    Monday: {
+      title: "LEGS",
+      exercises: [
+        { name: "Leg Press", sets: "5×12" },
+        { name: "Seated Leg Curl", sets: "4×15" },
+        { name: "Leg Extension", sets: "4×15" },
+        { name: "Standing Calf Raise Machine", sets: "5×20" },
+        { name: "Hip Abductor Machine", sets: "3×20" }
+      ],
+      finisher: "Treadmill: 30 sec sprint / 30 sec walk ×10 (10 min)"
+    },
+    Tuesday: {
+      title: "UPPER BODY (PUSH + PULL)",
+      exercises: [
+        { name: "Chest Press Machine", sets: "4×12" },
+        { name: "Lat Pulldown", sets: "5×10" },
+        { name: "Seated Row Machine", sets: "4×12" },
+        { name: "Shoulder Press Machine", sets: "4×10" },
+        { name: "Assisted Dips", sets: "3×max" }
+      ],
+      finisher: "Battle ropes or bike – 8 min hard"
+    },
+    Wednesday: {
+      title: "LEGS + CONDITIONING",
+      exercises: [
+        { name: "Hack Squat or V-Squat", sets: "4×10" },
+        { name: "Lying Leg Curl", sets: "4×12" },
+        { name: "Walking Lunges (bodyweight or smith)", sets: "3×20" },
+        { name: "Seated Calf Raise", sets: "4×25" }
+      ],
+      finisher: "StairMaster – 10 min nonstop"
+    },
+    Thursday: {
+      title: "SHOULDERS + CORE",
+      exercises: [
+        { name: "Shoulder Press Machine", sets: "4×10" },
+        { name: "Lateral Raise Machine", sets: "4×15" },
+        { name: "Reverse Pec Deck", sets: "4×15" },
+        { name: "Ab Crunch Machine", sets: "4×20" },
+        { name: "Rotary Torso Machine", sets: "3×15/side" }
+      ],
+      finisher: "Rowing machine – 6×250 m"
+    },
+    Friday: {
+      title: "CHEAT / RECOVERY DAY",
+      exercises: [],
+      finisher: "✔ Eat freely · ✔ Light movement only (walk/stretch/swim) · ❌ No lifting"
+    },
+    Saturday: {
+      title: "FULL BODY",
+      exercises: [
+        { name: "Leg Press", sets: "4×15" },
+        { name: "Chest Press", sets: "4×12" },
+        { name: "Lat Pulldown", sets: "4×12" },
+        { name: "Shoulder Press", sets: "3×12" },
+        { name: "Back Extension Machine", sets: "3×15" }
+      ],
+      finisher: "Circuit ×3: 15 push-ups · 20 air squats · 30 sec plank"
+    },
+    Sunday: {
+      title: "CARDIO + MOBILITY",
+      exercises: [
+        { name: "Bike or Treadmill", sets: "40 min" },
+        { name: "Full-body stretching", sets: "20 min" }
+      ],
+      finisher: ""
+    }
+  }
+};
+
+/** -----------------------------
+ *  Storage keys
+ *  ----------------------------- */
+const LS = {
+  weights: "gym.weights.v2",         // per exercise name -> last weight text
+  checks: "gym.checks.v2",           // per date -> per exercise name -> boolean
+  unit:   "gym.unit.v2",             // "kg" or "lb"
+  bodyweight: "gym.bodyweight.v2",   // string
+  sheetsUrl: "gym.sheets_url.v2",    // Apps Script Web App URL
+  logQueue: "gym.logqueue.v2"        // queued logs when offline
+};
+
+/** -----------------------------
+ *  Helpers
+ *  ----------------------------- */
+function todayISO() {
+  const d = new Date();
+  const tz = d.getTimezoneOffset() * 60000;
+  return new Date(d - tz).toISOString().slice(0,10);
+}
+function dayName() {
+  return new Intl.DateTimeFormat(undefined, { weekday: "long" }).format(new Date());
+}
+function loadJSON(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
+  catch { return fallback; }
+}
+function saveJSON(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+
+function getUnit() { return localStorage.getItem(LS.unit) || "kg"; }
+function setUnit(u) { localStorage.setItem(LS.unit, u); }
+
+function getBodyweight() { return localStorage.getItem(LS.bodyweight) || ""; }
+function setBodyweight(v) { localStorage.setItem(LS.bodyweight, v); }
+
+function getSheetsUrl() { return localStorage.getItem(LS.sheetsUrl) || ""; }
+function setSheetsUrl(url) { localStorage.setItem(LS.sheetsUrl, url); }
+
+function escapeHTML(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function escapeAttr(s){ return escapeHTML(s).replace(/`/g, "&#96;"); }
+
+/** -----------------------------
+ *  Sheets logging (offline queue)
+ *  ----------------------------- */
+function enqueueLog(payload) {
+  const q = loadJSON(LS.logQueue, []);
+  q.push(payload);
+  saveJSON(LS.logQueue, q);
+}
+async function tryFlushQueue() {
+  const url = getSheetsUrl();
+  if (!url) return;
+  const q = loadJSON(LS.logQueue, []);
+  if (!q.length) return;
+
+  // Send in order; stop if one fails
+  const remaining = [];
+  for (const item of q) {
+    const ok = await sendToSheets(url, item);
+    if (!ok) { remaining.push(item); break; }
+  }
+  // keep unsent items + rest
+  const idxSent = q.length - remaining.length;
+  const rest = q.slice(idxSent + (remaining.length ? 1 : 0));
+  const merged = remaining.concat(rest);
+  saveJSON(LS.logQueue, merged);
+}
+
+async function sendToSheets(url, payload) {
+  try {
+    // Apps Script accepts JSON POST. no-cors keeps iOS Safari happy.
+    await fetch(url, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function logToSheets(payload) {
+  const url = getSheetsUrl();
+  if (!url) return;
+  // Always queue first (so nothing gets lost); then try to flush
+  enqueueLog(payload);
+  await tryFlushQueue();
+}
+
+/** -----------------------------
+ *  UI Elements
+ *  ----------------------------- */
+const appEl = document.getElementById("app");
+const subtitleEl = document.getElementById("subtitle");
+const unitBtn = document.getElementById("unitBtn");
+const resetTodayBtn = document.getElementById("resetTodayBtn");
+const progressEl = document.getElementById("progress");
+const tipEl = document.getElementById("tip");
+
+const bwPill = document.getElementById("bwPill");
+const bwBtn  = document.getElementById("bwBtn");
+const logPill = document.getElementById("logPill");
+const sheetsBtn = document.getElementById("sheetsBtn");
+
+/** -----------------------------
+ *  Render
+ *  ----------------------------- */
+function render() {
+  const day = dayName();
+  const date = todayISO();
+  const plan = routine.days[day] || routine.days.Monday;
+
+  const unit = getUnit();
+  unitBtn.textContent = `Unit: ${unit}`;
+
+  const bw = getBodyweight();
+  bwPill.textContent = `Bodyweight: ${bw ? (bw + " " + unit) : "—"}`;
+
+  const sheetsUrl = getSheetsUrl();
+  const queued = loadJSON(LS.logQueue, []).length;
+  if (!sheetsUrl) {
+    logPill.textContent = "Sheets: off";
+    logPill.className = "pill";
+  } else if (queued > 0) {
+    logPill.textContent = `Sheets: on · queued ${queued}`;
+    logPill.className = "pill danger";
+  } else {
+    logPill.textContent = "Sheets: on";
+    logPill.className = "pill ok";
+  }
+
+  subtitleEl.textContent = `${day} · ${date} · ${plan.title}`;
+
+  const weights = loadJSON(LS.weights, {});
+  const checksAll = loadJSON(LS.checks, {});
+  const checks = checksAll[date] || {};
+
+  const warm = routine.warmup.map(x => ({...x, section:"Warm-up"}));
+  const main = plan.exercises.map(x => ({...x, section:"Main"}));
+  const fin = plan.finisher ? [{ name: "Finisher", sets: plan.finisher, section:"Finisher", isFinisher:true }] : [];
+  const allExercisesToday = [...warm, ...main, ...fin];
+
+  const totalCheckable = allExercisesToday.filter(x => !x.isFinisher).length;
+  const doneCount = allExercisesToday.filter(x => !x.isFinisher && checks[x.name]).length;
+
+  progressEl.textContent = `Done: ${doneCount}/${totalCheckable}`;
+  tipEl.textContent = day === "Friday" ? "Recover hard." : "Rest 45–60s. Go fast.";
+
+  const html = [];
+  html.push(card("DAILY WARM-UP (10 min)", routine.warmup, weights, checks, unit, date, day, "Warm-up"));
+  html.push(card(`${day} — ${plan.title}`, plan.exercises, weights, checks, unit, date, day, "Workout", plan.finisher));
+
+  if (day === "Friday") {
+    html.push(`
+      <div class="card">
+        <h2>FRIDAY — CHEAT / RECOVERY</h2>
+        <div class="small">${escapeHTML(routine.days.Friday.finisher)}</div>
+      </div>
+    `);
+  }
+
+  appEl.innerHTML = html.join("");
+  wireInputs(date, day);
+}
+
+function card(title, exercises, weights, checks, unit, date, day, sectionLabel, finisherText = "") {
+  const rows = [];
+  (exercises || []).forEach((ex) => rows.push(exerciseRow(ex, weights, checks, unit)));
+
+  let finisher = "";
+  if (finisherText) {
+    finisher = `
+      <div style="margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,.06);">
+        <div class="name">Finisher</div>
+        <div class="meta">${escapeHTML(finisherText)}</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card" data-section="${escapeAttr(sectionLabel)}">
+      <h2>${escapeHTML(title)}</h2>
+      ${rows.join("") || `<div class="small">No exercises today.</div>`}
+      ${finisher}
+    </div>
+  `;
+}
+
+function exerciseRow(ex, weights, checks, unit) {
+  const key = ex.name;
+  const last = weights[key] ?? "";
+  const checked = !!checks[key];
+
+  return `
+    <div class="ex ${checked ? "done" : ""}">
+      <input type="checkbox" data-kind="check" data-ex="${escapeAttr(key)}" ${checked ? "checked":""}/>
+      <div>
+        <div class="name">${escapeHTML(ex.name)}</div>
+        <div class="meta">${escapeHTML(ex.sets)}${last ? ` · last: ${escapeHTML(String(last))} ${unit}` : ""}</div>
+      </div>
+      <input class="w" inputmode="decimal" placeholder="weight" value="${escapeAttr(last)}" data-kind="weight" data-ex="${escapeAttr(key)}" data-sets="${escapeAttr(ex.sets)}"/>
+    </div>
+  `;
+}
+
+function wireInputs(date, day) {
+  const weights = loadJSON(LS.weights, {});
+  const checksAll = loadJSON(LS.checks, {});
+  const checks = checksAll[date] || {};
+
+  document.querySelectorAll('[data-kind="weight"]').forEach(input => {
+    input.addEventListener("change", async (e) => {
+      const ex = e.target.getAttribute("data-ex");
+      const sets = e.target.getAttribute("data-sets") || "";
+      const val = (e.target.value || "").trim();
+
+      weights[ex] = val;
+      saveJSON(LS.weights, weights);
+
+      await logToSheets({
+        type: "weight_update",
+        timestamp: new Date().toISOString(),
+        date,
+        day,
+        section: "Workout",
+        exercise: ex,
+        sets,
+        weight: val,
+        unit: getUnit(),
+        checked: null,
+        bodyweight: getBodyweight() || ""
+      });
+
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-kind="check"]').forEach(box => {
+    box.addEventListener("change", async (e) => {
+      const ex = e.target.getAttribute("data-ex");
+      const checked = e.target.checked;
+
+      checks[ex] = checked;
+      checksAll[date] = checks;
+      saveJSON(LS.checks, checksAll);
+
+      await logToSheets({
+        type: "check",
+        timestamp: new Date().toISOString(),
+        date,
+        day,
+        section: "Workout",
+        exercise: ex,
+        sets: "",
+        weight: loadJSON(LS.weights, {})[ex] || "",
+        unit: getUnit(),
+        checked,
+        bodyweight: getBodyweight() || ""
+      });
+
+      render();
+    });
+  });
+}
+
+/** -----------------------------
+ *  Buttons
+ *  ----------------------------- */
+unitBtn.addEventListener("click", () => {
+  const cur = getUnit();
+  const next = cur === "kg" ? "lb" : "kg";
+  setUnit(next);
+  render();
+});
+
+resetTodayBtn.addEventListener("click", () => {
+  const date = todayISO();
+  const checksAll = loadJSON(LS.checks, {});
+  delete checksAll[date];
+  saveJSON(LS.checks, checksAll);
+  render();
+});
+
+bwBtn.addEventListener("click", async () => {
+  const unit = getUnit();
+  const current = getBodyweight();
+  const v = prompt(`Enter current bodyweight (${unit})`, current || "");
+  if (v === null) return;
+  const val = String(v).trim();
+  setBodyweight(val);
+
+  await logToSheets({
+    type: "bodyweight",
+    timestamp: new Date().toISOString(),
+    date: todayISO(),
+    day: dayName(),
+    section: "Bodyweight",
+    exercise: "",
+    sets: "",
+    weight: "",
+    unit: getUnit(),
+    checked: null,
+    bodyweight: val
+  });
+
+  render();
+});
+
+sheetsBtn.addEventListener("click", () => {
+  const current = getSheetsUrl();
+  const v = prompt(
+    "Paste your Google Apps Script Web App URL (leave blank to disable):",
+    current || ""
+  );
+  if (v === null) return;
+  const val = String(v).trim();
+  setSheetsUrl(val);
+  render();
+  alert(val ? "Sheets logging enabled. (If offline, logs queue and auto-send later.)" : "Sheets logging disabled.");
+});
+
+/** -----------------------------
+ *  Service worker
+ *  ----------------------------- */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js"));
+}
+
+window.addEventListener("online", () => tryFlushQueue().then(render));
+window.addEventListener("offline", render);
+
+render();
+</script>
+</body>
+</html>
