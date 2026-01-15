@@ -52,10 +52,15 @@
         <button class="btn" id="bwBtn" type="button">Update BW</button>
         <div class="pill" id="logPill">Sheets: off</div>
       </div>
+      <div class="row" style="margin-top:10px;">
+        <div class="pill" id="timerPill">Timer: 00:00</div>
+        <button class="btn" id="timerStartBtn" type="button">Start</button>
+        <button class="btn" id="timerEndBtn" type="button">End</button>
+        <button class="btn ok" id="submitBtn" type="button">Submit workout</button>
+      </div>
     </div>
 
     <div class="row" style="gap:8px;">
-      <button class="btn" id="unitBtn" type="button">Unit: kg</button>
       <button class="btn" id="sheetsBtn" type="button">Sheets</button>
       <button class="btn danger" id="resetTodayBtn" type="button">Reset today</button>
     </div>
@@ -77,7 +82,7 @@
  *  ----------------------------- */
 const routine = {
   warmup: [
-    { name: "Treadmill jog or cycle", sets: "5 min" },
+    { name: "Stairmaster", sets: "5 min", unit: "mins", placeholder: "mins" },
     { name: "Leg press (light)", sets: "2×15" },
     { name: "Shoulder machine (light)", sets: "2×15" },
     { name: "Sled", sets: "optional hard pushes" }
@@ -156,13 +161,16 @@ const routine = {
 /** -----------------------------
  *  Storage keys
  *  ----------------------------- */
+const DEFAULT_UNIT = "kg";
+const DEFAULT_SHEETS_URL = "https://script.google.com/macros/s/AKfycbx1oAqVYSfdf8ZoL919qoYmYsVl1m92-5KiivrDyfKblcb-BrXjQuQ5xtEYq-T_GQad/exec";
 const LS = {
   weights: "gym.weights.v2",         // per exercise name -> last weight text
   checks: "gym.checks.v2",           // per date -> per exercise name -> boolean
-  unit:   "gym.unit.v2",             // "kg" or "lb"
   bodyweight: "gym.bodyweight.v2",   // string
   sheetsUrl: "gym.sheets_url.v2",    // Apps Script Web App URL
-  logQueue: "gym.logqueue.v2"        // queued logs when offline
+  logQueue: "gym.logqueue.v2",       // queued logs when offline
+  sessions: "gym.sessions.v1",       // per date -> session summary
+  timer: "gym.timer.v1"              // { start:number|null, end:number|null }
 };
 
 /** -----------------------------
@@ -182,17 +190,33 @@ function loadJSON(key, fallback) {
 }
 function saveJSON(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
 
-function getUnit() { return localStorage.getItem(LS.unit) || "kg"; }
-function setUnit(u) { localStorage.setItem(LS.unit, u); }
+function getUnit() { return DEFAULT_UNIT; }
 
 function getBodyweight() { return localStorage.getItem(LS.bodyweight) || ""; }
 function setBodyweight(v) { localStorage.setItem(LS.bodyweight, v); }
 
-function getSheetsUrl() { return localStorage.getItem(LS.sheetsUrl) || ""; }
+function getSheetsUrl() {
+  const stored = localStorage.getItem(LS.sheetsUrl);
+  return stored === null ? DEFAULT_SHEETS_URL : stored;
+}
 function setSheetsUrl(url) { localStorage.setItem(LS.sheetsUrl, url); }
+if (localStorage.getItem(LS.sheetsUrl) === null) {
+  setSheetsUrl(DEFAULT_SHEETS_URL);
+}
 
 function escapeHTML(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 function escapeAttr(s){ return escapeHTML(s).replace(/`/g, "&#96;"); }
+
+function loadTimerState() { return loadJSON(LS.timer, { start: null, end: null }); }
+function saveTimerState(state) { saveJSON(LS.timer, state); }
+function formatDuration(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const hrs = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hrs > 0) return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
 
 /** -----------------------------
  *  Sheets logging (offline queue)
@@ -222,17 +246,26 @@ async function tryFlushQueue() {
 }
 
 async function sendToSheets(url, payload) {
+  const body = JSON.stringify(payload);
   try {
-    // Apps Script accepts JSON POST. no-cors keeps iOS Safari happy.
-    await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
-      mode: "no-cors",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      body
     });
-    return true;
+    return res.ok;
   } catch {
-    return false;
+    try {
+      await fetch(url, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -249,7 +282,6 @@ async function logToSheets(payload) {
  *  ----------------------------- */
 const appEl = document.getElementById("app");
 const subtitleEl = document.getElementById("subtitle");
-const unitBtn = document.getElementById("unitBtn");
 const resetTodayBtn = document.getElementById("resetTodayBtn");
 const progressEl = document.getElementById("progress");
 const tipEl = document.getElementById("tip");
@@ -258,6 +290,10 @@ const bwPill = document.getElementById("bwPill");
 const bwBtn  = document.getElementById("bwBtn");
 const logPill = document.getElementById("logPill");
 const sheetsBtn = document.getElementById("sheetsBtn");
+const timerPill = document.getElementById("timerPill");
+const timerStartBtn = document.getElementById("timerStartBtn");
+const timerEndBtn = document.getElementById("timerEndBtn");
+const submitBtn = document.getElementById("submitBtn");
 
 /** -----------------------------
  *  Render
@@ -268,7 +304,6 @@ function render() {
   const plan = routine.days[day] || routine.days.Monday;
 
   const unit = getUnit();
-  unitBtn.textContent = `Unit: ${unit}`;
 
   const bw = getBodyweight();
   bwPill.textContent = `Bodyweight: ${bw ? (bw + " " + unit) : "—"}`;
@@ -294,18 +329,18 @@ function render() {
 
   const warm = routine.warmup.map(x => ({...x, section:"Warm-up"}));
   const main = plan.exercises.map(x => ({...x, section:"Main"}));
-  const fin = plan.finisher ? [{ name: "Finisher", sets: plan.finisher, section:"Finisher", isFinisher:true }] : [];
+  const fin = plan.finisher ? [{ name: "Finisher", sets: plan.finisher, section:"Finisher", isFinisher:true, noWeight:true, unit: "" }] : [];
   const allExercisesToday = [...warm, ...main, ...fin];
 
-  const totalCheckable = allExercisesToday.filter(x => !x.isFinisher).length;
-  const doneCount = allExercisesToday.filter(x => !x.isFinisher && checks[x.name]).length;
+  const totalCheckable = allExercisesToday.length;
+  const doneCount = allExercisesToday.filter(x => checks[x.name]).length;
 
   progressEl.textContent = `Done: ${doneCount}/${totalCheckable}`;
   tipEl.textContent = day === "Friday" ? "Recover hard." : "Rest 45–60s. Go fast.";
 
   const html = [];
-  html.push(card("DAILY WARM-UP (10 min)", routine.warmup, weights, checks, unit, date, day, "Warm-up"));
-  html.push(card(`${day} — ${plan.title}`, plan.exercises, weights, checks, unit, date, day, "Workout", plan.finisher));
+  html.push(card("DAILY WARM-UP (10 min)", routine.warmup, weights, checks, "Warm-up"));
+  html.push(card(`${day} — ${plan.title}`, plan.exercises, weights, checks, "Workout", plan.finisher));
 
   if (day === "Friday") {
     html.push(`
@@ -318,46 +353,57 @@ function render() {
 
   appEl.innerHTML = html.join("");
   wireInputs(date, day);
+  renderTimer();
+  ensureTimerInterval();
 }
 
-function card(title, exercises, weights, checks, unit, date, day, sectionLabel, finisherText = "") {
+function card(title, exercises, weights, checks, sectionLabel, finisherText = "") {
   const rows = [];
-  (exercises || []).forEach((ex) => rows.push(exerciseRow(ex, weights, checks, unit)));
-
-  let finisher = "";
+  (exercises || []).forEach((ex) => rows.push(exerciseRow(ex, weights, checks)));
   if (finisherText) {
-    finisher = `
-      <div style="margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,.06);">
-        <div class="name">Finisher</div>
-        <div class="meta">${escapeHTML(finisherText)}</div>
-      </div>
-    `;
+    rows.push(exerciseRow({ name: "Finisher", sets: finisherText, noWeight: true, unit: "" }, weights, checks));
   }
 
   return `
     <div class="card" data-section="${escapeAttr(sectionLabel)}">
       <h2>${escapeHTML(title)}</h2>
       ${rows.join("") || `<div class="small">No exercises today.</div>`}
-      ${finisher}
     </div>
   `;
 }
 
-function exerciseRow(ex, weights, checks, unit) {
+function exerciseRow(ex, weights, checks) {
   const key = ex.name;
+  const unitLabel = Object.prototype.hasOwnProperty.call(ex, "unit") ? ex.unit : DEFAULT_UNIT;
   const last = weights[key] ?? "";
   const checked = !!checks[key];
+  const metaParts = [];
+  if (ex.sets) metaParts.push(escapeHTML(ex.sets));
+  if (!ex.noWeight && last) {
+    const unitText = unitLabel ? ` ${escapeHTML(String(unitLabel))}` : "";
+    metaParts.push(`last: ${escapeHTML(String(last))}${unitText}`);
+  }
+  const meta = metaParts.join(" · ");
+  const placeholder = ex.placeholder || (unitLabel === "mins" ? "mins" : "weight");
+  const weightInput = ex.noWeight
+    ? `<div></div>`
+    : `<input class="w" inputmode="decimal" placeholder="${escapeAttr(placeholder)}" value="${escapeAttr(last)}" data-kind="weight" data-ex="${escapeAttr(key)}" data-sets="${escapeAttr(ex.sets || "")}" data-unit="${escapeAttr(unitLabel)}"/>`;
 
   return `
     <div class="ex ${checked ? "done" : ""}">
-      <input type="checkbox" data-kind="check" data-ex="${escapeAttr(key)}" ${checked ? "checked":""}/>
+      <input type="checkbox" data-kind="check" data-ex="${escapeAttr(key)}" data-unit="${escapeAttr(unitLabel)}" data-sets="${escapeAttr(ex.sets || "")}" ${checked ? "checked":""}/>
       <div>
         <div class="name">${escapeHTML(ex.name)}</div>
-        <div class="meta">${escapeHTML(ex.sets)}${last ? ` · last: ${escapeHTML(String(last))} ${unit}` : ""}</div>
+        <div class="meta">${meta || ""}</div>
       </div>
-      <input class="w" inputmode="decimal" placeholder="weight" value="${escapeAttr(last)}" data-kind="weight" data-ex="${escapeAttr(key)}" data-sets="${escapeAttr(ex.sets)}"/>
+      ${weightInput}
     </div>
   `;
+}
+
+function getDataUnit(el) {
+  const val = el.getAttribute("data-unit");
+  return val === null ? getUnit() : val;
 }
 
 function wireInputs(date, day) {
@@ -366,9 +412,16 @@ function wireInputs(date, day) {
   const checks = checksAll[date] || {};
 
   document.querySelectorAll('[data-kind="weight"]').forEach(input => {
+    input.addEventListener("input", (e) => {
+      const ex = e.target.getAttribute("data-ex");
+      const val = (e.target.value || "").trim();
+      weights[ex] = val;
+      saveJSON(LS.weights, weights);
+    });
     input.addEventListener("change", async (e) => {
       const ex = e.target.getAttribute("data-ex");
       const sets = e.target.getAttribute("data-sets") || "";
+      const unit = getDataUnit(e.target);
       const val = (e.target.value || "").trim();
 
       weights[ex] = val;
@@ -383,7 +436,7 @@ function wireInputs(date, day) {
         exercise: ex,
         sets,
         weight: val,
-        unit: getUnit(),
+        unit,
         checked: null,
         bodyweight: getBodyweight() || ""
       });
@@ -395,6 +448,8 @@ function wireInputs(date, day) {
   document.querySelectorAll('[data-kind="check"]').forEach(box => {
     box.addEventListener("change", async (e) => {
       const ex = e.target.getAttribute("data-ex");
+      const sets = e.target.getAttribute("data-sets") || "";
+      const unit = getDataUnit(e.target);
       const checked = e.target.checked;
 
       checks[ex] = checked;
@@ -408,9 +463,9 @@ function wireInputs(date, day) {
         day,
         section: "Workout",
         exercise: ex,
-        sets: "",
+        sets,
         weight: loadJSON(LS.weights, {})[ex] || "",
-        unit: getUnit(),
+        unit,
         checked,
         bodyweight: getBodyweight() || ""
       });
@@ -421,15 +476,119 @@ function wireInputs(date, day) {
 }
 
 /** -----------------------------
+ *  Session submit + timer
+ *  ----------------------------- */
+let timerInterval = null;
+
+function renderTimer() {
+  const state = loadTimerState();
+  const elapsed = state.start ? (state.end || Date.now()) - state.start : 0;
+  timerPill.textContent = `Timer: ${formatDuration(elapsed)}`;
+  timerStartBtn.disabled = !!state.start && !state.end;
+  timerEndBtn.disabled = !state.start || !!state.end;
+}
+
+function ensureTimerInterval() {
+  if (timerInterval) clearInterval(timerInterval);
+  const state = loadTimerState();
+  if (state.start && !state.end) {
+    timerInterval = setInterval(renderTimer, 1000);
+  }
+}
+
+async function startTimer() {
+  const now = Date.now();
+  saveTimerState({ start: now, end: null });
+  renderTimer();
+  ensureTimerInterval();
+  await logToSheets({
+    type: "timer_start",
+    timestamp: new Date().toISOString(),
+    date: todayISO(),
+    day: dayName(),
+    section: "Timer",
+    exercise: "",
+    sets: "",
+    weight: "",
+    unit: "",
+    checked: null,
+    bodyweight: getBodyweight() || "",
+    start: new Date(now).toISOString()
+  });
+}
+
+async function endTimer() {
+  const state = loadTimerState();
+  if (!state.start || state.end) return;
+  const end = Date.now();
+  saveTimerState({ start: state.start, end });
+  renderTimer();
+  ensureTimerInterval();
+  await logToSheets({
+    type: "timer_end",
+    timestamp: new Date().toISOString(),
+    date: todayISO(),
+    day: dayName(),
+    section: "Timer",
+    exercise: "",
+    sets: "",
+    weight: "",
+    unit: "",
+    checked: null,
+    bodyweight: getBodyweight() || "",
+    start: new Date(state.start).toISOString(),
+    end: new Date(end).toISOString(),
+    elapsed_ms: end - state.start
+  });
+}
+
+function buildSessionPayload(date, day) {
+  const plan = routine.days[day] || routine.days.Monday;
+  const warm = routine.warmup.map(x => ({...x, section:"Warm-up"}));
+  const main = plan.exercises.map(x => ({...x, section:"Workout"}));
+  const fin = plan.finisher ? [{ name: "Finisher", sets: plan.finisher, section: "Finisher", noWeight: true, unit: "" }] : [];
+  const all = [...warm, ...main, ...fin];
+
+  const weights = loadJSON(LS.weights, {});
+  const checksAll = loadJSON(LS.checks, {});
+  const checks = checksAll[date] || {};
+  const timer = loadTimerState();
+
+  const items = all.map((ex) => ({
+    name: ex.name,
+    sets: ex.sets || "",
+    section: ex.section || "",
+    weight: weights[ex.name] || "",
+    unit: ex.noWeight ? "" : (ex.unit || DEFAULT_UNIT),
+    checked: !!checks[ex.name]
+  }));
+
+  return {
+    type: "session_submit",
+    timestamp: new Date().toISOString(),
+    date,
+    day,
+    title: plan.title,
+    bodyweight: getBodyweight() || "",
+    timer,
+    items
+  };
+}
+
+async function submitSession() {
+  const date = todayISO();
+  const day = dayName();
+  const payload = buildSessionPayload(date, day);
+  const sessions = loadJSON(LS.sessions, {});
+  sessions[date] = payload;
+  saveJSON(LS.sessions, sessions);
+  await logToSheets(payload);
+  alert("Workout submitted. (If offline, it will queue and auto-send later.)");
+}
+
+/** -----------------------------
  *  Buttons
  *  ----------------------------- */
-unitBtn.addEventListener("click", () => {
-  const cur = getUnit();
-  const next = cur === "kg" ? "lb" : "kg";
-  setUnit(next);
-  render();
-});
-
 resetTodayBtn.addEventListener("click", () => {
   const date = todayISO();
   const checksAll = loadJSON(LS.checks, {});
@@ -437,6 +596,10 @@ resetTodayBtn.addEventListener("click", () => {
   saveJSON(LS.checks, checksAll);
   render();
 });
+
+timerStartBtn.addEventListener("click", () => startTimer());
+timerEndBtn.addEventListener("click", () => endTimer());
+submitBtn.addEventListener("click", () => submitSession());
 
 bwBtn.addEventListener("click", async () => {
   const unit = getUnit();
@@ -487,6 +650,7 @@ window.addEventListener("online", () => tryFlushQueue().then(render));
 window.addEventListener("offline", render);
 
 render();
+tryFlushQueue().then(render);
 </script>
 </body>
 </html>
